@@ -12,9 +12,9 @@ import math
 from torch.utils.tensorboard import SummaryWriter
 
 
-check_block_number =3
-threshold1 = 197
-threshold2 = 900
+check_block_number = 3 #consider first 3 blocks in KAN architecture
+threshold1 = 197 # for grid extension Tp = 200 before 3 rounds 
+threshold2 = 900 # prevent too large round
 
 class Server(object):
     def __init__(self, device, model_func, init_model, init_par_list, datasets, method, args):
@@ -337,8 +337,6 @@ class Server(object):
         print("##=============================================##")
         Averaged_update = torch.zeros(self.server_model_params_list.shape)
         
-        if self.args.sparsification == 1 and self.args.sparse_method == 'fixed':
-            self.sparse_indices = np.random.choice(range(self.args.grid), max(int(self.args.grid*self.args.sparse_ratio), 1), replace=False) #+ self.args.spline_order       
         return_round = 0
         for t in range(self.args.comm_rounds):
             update_round = (self.args.comm_rounds/5)
@@ -349,15 +347,6 @@ class Server(object):
             elif self.args.grid_varing is True and t > 0 and (t % update_round) == 0:
                 delta_grid = [0, 2, 5, 20, 20, 50, 100]
                 new_grid = self.args.grid + delta_grid[round(t/update_round)]
-                if self.args.sparse_varing is True and new_grid > 9:
-                    if new_grid == 10:
-                        self.args.sparse_ratio = 0.1
-                    elif new_grid == 30:
-                        self.args.sparse_ratio = 0.7
-                    elif new_grid == 50:    
-                        self.args.sparse_ratio = 0.8
-                    elif new_grid == 100:    
-                        self.args.sparse_ratio = 0.9
                 self.writer.add_scalar('GRID_VARIED', new_grid, t)
                 print(f"*** Round {t}: manual grid {self.args.grid} → {new_grid} ***")
                 self.server_model = self.server_model.refine(new_grid)
@@ -367,7 +356,6 @@ class Server(object):
                 import copy
                 self.model_func = lambda: copy.deepcopy(self.server_model)
 
-                # 7) 파라미터(flatten)·버퍼 재초기화
                 flat = torch.cat([p.data.reshape(-1) for p in self.server_model.parameters()], dim=0)
                 self.server_model_params_list = flat.clone()
                 self.comm_vecs['Params_list'] = flat.clone()
@@ -407,12 +395,14 @@ class Server(object):
                     self.args.sparse_ratio = final_ratio
                 self.writer.add_scalar('Sparsification_ratio', self.args.sparse_ratio, t)
 
+                if self.args.sparsification == 1 and self.args.sparse_method == 'fixed':
+                    self.sparse_indices = np.random.choice(range(self.args.grid), max(int(self.args.grid*self.args.sparse_ratio), 1), replace=False) #+ self.args.spline_order       
             start = time.time()
             # select active clients list
             selected_clients = self._activate_clients_(t)
             counts = torch.tensor([len(self.datasets.client_y[c]) for c in selected_clients],device=self.device,dtype=torch.float32)
-            weights = counts / counts.sum()  # 합이 1이 되도록 정규화
-            weights_u = weights.unsqueeze(1)   # shape: [K,1]
+            weights = counts / counts.sum()  
+            weights_u = weights.unsqueeze(1)  
             
             print('============= Communication Round', t + 1,'SR',self.args.sparse_ratio,'=============', flush = True)
             print('Selected Clients: %s' %(', '.join(['%2d' %item for item in selected_clients])))
